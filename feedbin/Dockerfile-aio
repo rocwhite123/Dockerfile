@@ -1,0 +1,14 @@
+FROM baip/feedbin
+
+USER 0
+
+COPY scripts/setup_aio.sh /srv/scripts
+RUN /srv/scripts/setup_aio.sh
+
+COPY ./supervisor/ /etc/supervisor/conf.d/
+
+COPY ["scripts/elasticsearch.sh", "scripts/feedbin.sh", \
+     "scripts/memcached.sh", "scripts/supervisor.sh", "/srv/scripts/" ]
+CMD ["/srv/scripts/supervisor.sh"]
+
+USER 1001

@@ -1,0 +1,66 @@
+version: '3'
+
+services:
+  db:
+    image: postgres:10.4
+    restart: always
+    env_file:
+      - db.env
+    volumes:
+      - db:/var/lib/postgresql/data
+
+  rds:
+    image: redis:3.2
+    restart: always
+
+  mcd:
+    image: memcached:1.5
+    restart: always
+
+  es:
+    image: elasticsearch:2.4
+    restart: always
+    volumes:
+      - es:/usr/share/elasticsearch/data
+
+  app:
+    image: baip/feedbin
+    restart: always
+    environment:
+      - POSTGRES_HOST=db
+      - MEMCACHED_HOST=mcd
+      - REDIS_HOST=rds
+      - ELASTIC_SEARCH_HOST=es
+    env_file:
+      - db.env
+      - secrets.env
+    volumes:
+      - app:/srv/apps/feedbin/current/public
+    depends_on:
+      - db
+      - rds
+      - mcd
+      - es
+
+  web:
+    image: nginx
+    restart: always
+    env_file:
+      - vhost.env
+    volumes:
+      - app:/srv/apps/feedbin/current/public:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+    networks:
+      - nginxproxy_default
+      - default
+
+volumes:
+  db:
+  es:
+  app:
+
+networks:
+  nginxproxy_default:
+    external: true

@@ -1,0 +1,207 @@
+apiVersion: v1
+kind: Template
+metadata:
+  name: feedbin
+objects:
+# oc create secret generic feedbin-db --from-env-file=./db.env --type=opaque
+# oc create secret generic feedbin-secrets --from-env-file=./secrets.env --type=opaque
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: data
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 1Gi
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    labels:
+      app: feedbin
+    name: feedbin
+  spec:
+    lookupPolicy:
+      local: false
+    tags:
+    - from:
+        kind: DockerImage
+        name: baip/feedbin
+      importPolicy: {}
+      name: latest
+      referencePolicy:
+        type: Source
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    labels:
+      name: feedbin
+    name: feedbin
+  spec:
+    replicas: 1
+    selector:
+      deploymentconfig: feedbin
+    strategy:
+      activeDeadlineSeconds: 21600
+      recreateParams:
+        timeoutSeconds: 600
+      resources: {}
+      type: Recreate
+    template:
+      metadata:
+        name: feedbin
+        labels:
+          name: feedbin
+      spec:
+        containers:
+          - name: db
+            image: registry.access.redhat.com/rhscl/postgresql-10-rhel7
+            env:
+              - name: POSTGRESQL_DATABASE
+                valueFrom:
+                  secretKeyRef:
+                    key: POSTGRES_DB
+                    name: feedbin-db
+              - name: POSTGRESQL_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    key: POSTGRES_PASSWORD
+                    name: feedbin-db
+              - name: POSTGRESQL_USER
+                valueFrom:
+                  secretKeyRef:
+                    key: POSTGRES_USER
+                    name: feedbin-db
+            volumeMounts:
+              - name: feedbin-data
+                mountPath: /var/lib/pgsql/data
+                subPath: psql-data
+            resources:
+              limits:
+                cpu: 150m
+                memory: 100Mi
+          - name: rds
+            image: registry.access.redhat.com/rhscl/redis-32-rhel7
+            volumeMounts:
+              - name: redis-data
+                mountPath: /var/lib/redis/data
+            resources:
+              limits:
+                cpu: 50m
+                memory: 110Mi
+          - name: mcd
+            image: modularitycontainers/memcached
+            resources:
+              limits:
+                cpu: 50m
+                memory: 110Mi
+          - name: es
+            image: docker.elastic.co/elasticsearch/elasticsearch-oss:6.2.4
+            env:
+              - name: discovery.type
+                value: "single-node"
+            volumeMounts:
+              - name: feedbin-data
+                mountPath: /usr/share/elasticsearch/data
+                subPath: es-data
+            resources:
+              limits:
+                cpu: 150m
+                memory: 275Mi
+          - name: feedbin
+            image: baip/feedbin
+            imagePullPolicy: Always
+            env:
+              - name: NUM_UNICORN_WORKER
+                value: "2"
+              - name: PUSH_URL
+                value: 'https://feedbin.kingroad.cf'
+              - name: SECRET_KEY_BASE
+                valueFrom:
+                  secretKeyRef:
+                    key: SECRET_KEY_BASE
+                    name: feedbin-secrets
+              - name: SKYLIGHT_AUTHENTICATION
+                valueFrom:
+                  secretKeyRef:
+                    key: SKYLIGHT_AUTHENTICATION
+                    name: feedbin-secrets
+              - name: STRIPE_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    key: STRIPE_API_KEY
+                    name: feedbin-secrets
+              - name: STRIPE_PUBLIC_KEY
+                valueFrom:
+                  secretKeyRef:
+                    key: STRIPE_PUBLIC_KEY
+                    name: feedbin-secrets
+              - name: POSTGRES_DB
+                valueFrom:
+                  secretKeyRef:
+                    key: POSTGRES_DB
+                    name: feedbin-db
+              - name: POSTGRES_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    key: POSTGRES_PASSWORD
+                    name: feedbin-db
+              - name: POSTGRES_USER
+                valueFrom:
+                  secretKeyRef:
+                    key: POSTGRES_USER
+                    name: feedbin-db
+            resources:
+              limits:
+                cpu: 1100m
+                memory: 275Mi
+        volumes:
+          - name: feedbin-data
+            persistentVolumeClaim:
+              claimName: data
+          - name: redis-data
+            emptyDir: {}
+        restartPolicy: Always
+    test: false
+    triggers:
+    - type: ConfigChange
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+        - feedbin
+        from:
+          kind: ImageStreamTag
+          name: feedbin:latest
+          namespace: kingroad
+      type: ImageChange
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: feedbin
+  spec:
+    ports:
+    - name: web
+      port: 8080
+      protocol: TCP
+      targetPort: 3000
+    selector:
+      name: feedbin
+    sessionAffinity: None
+    type: ClusterIP
+- apiVersion: v1
+  kind: Route
+  metadata:
+    name: feedbin
+  spec:
+    host:
+    port:
+      targetPort: web
+    tls:
+      insecureEdgeTerminationPolicy: Redirect
+      termination: edge
+    to:
+      kind: Service
+      name: feedbin
+      weight: 100
+    wildcardPolicy: None

@@ -1,0 +1,36 @@
+version: '3'
+
+services:
+  db:
+    image: postgres:10.4
+    restart: always
+    env_file:
+      - db.env
+    volumes:
+      - db:/var/lib/postgresql/data
+
+  app:
+    image: baip/feedbin-aio
+    restart: always
+    environment:
+      - POSTGRES_HOST=db
+    env_file:
+      - db.env
+      - secrets.env
+      - vhost.env
+    volumes:
+      - app:/srv/apps/feedbin/current/public
+    depends_on:
+      - db
+    networks:
+      - nginxproxy_default
+      - default
+
+volumes:
+  db:
+  es:
+  app:
+
+networks:
+  nginxproxy_default:
+    external: true
